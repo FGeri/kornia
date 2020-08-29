@@ -10,7 +10,7 @@ from torch.autograd import gradcheck
 
 import kornia
 import kornia.testing as utils  # test utils
-from kornia.constants import pi
+from kornia.constants import pi, Resample
 from kornia.augmentation import AugmentationBase, RandomHorizontalFlip, RandomVerticalFlip, ColorJitter, \
     RandomErasing, RandomGrayscale, RandomRotation, RandomCrop, RandomResizedCrop, RandomMotionBlur
 
@@ -1356,6 +1356,44 @@ class TestRandomRotation:
         assert_allclose(out, expected, rtol=1e-6, atol=1e-4)
         assert_allclose(mat, expected_transform, rtol=1e-6, atol=1e-4)
         assert_allclose(mat_2, expected_transform_2, rtol=1e-6, atol=1e-4)
+
+    @pytest.mark.parametrize("degree", [0.,90.,-90.,180.,-180.,270.,-270.,360.,-360.,720.,-720.])
+    def test_random_rotation_coord_check(self, device, dtype, degree):
+        if dtype is torch.float16:
+            pytest.xfail("'inverse_cuda' not implemented for 'Half'")
+            
+        f = RandomRotation(degrees=360.0, return_transform=True)
+
+        input = torch.tensor([[[[1., 2., 3.,],
+                                [4., 5., 6.,],
+                                [7., 8., 9.]]]], device=device, dtype=dtype)  # 1 x 1 x 3 x 3
+
+        input_coordinates = torch.tensor([[
+            [0, 1, 2, 0, 1, 2, 0, 1, 2],  # x coord
+            [0, 0, 0, 1, 1, 1, 2, 2, 2],  # y coord
+            [1, 1, 1, 1, 1, 1, 1, 1, 1]
+        ]], device=device, dtype=dtype)  # 1 x 3 x 3
+
+        params = {'degrees': torch.tensor([degree]),
+                  'interpolation': torch.tensor(Resample.NEAREST.value),
+                  'align_corners': torch.tensor(False)}
+        output, transform = f(input,params)
+        result_coordinates = transform @ input_coordinates
+        coordinates = input_coordinates.round().long()
+        result_coordinates = result_coordinates.round().long()
+
+        # Tensors must have the same shapes and values
+        assert output.shape == input.shape
+        # Transformed indices must not be out of bound
+        assert (torch.torch.logical_and(result_coordinates[0, 0, :] >= 0,
+                                        result_coordinates[0, 0, :] < input.shape[-1])).all()
+        assert (torch.torch.logical_and(result_coordinates[0, 1, :] >= 0,
+                                        result_coordinates[0, 1, :] < input.shape[-2])).all()
+        # Values in the output tensor at the places of transformed indices must
+        # have the same value as the input tensor has at the corresponding
+        # positions
+        assert (output[..., result_coordinates[0, 1, :], result_coordinates[0, 0, :]] ==
+                input[..., coordinates[0, 1, :], coordinates[0, 0, :]]).all()
 
     @pytest.mark.skip(reason="turn off all jit for a while")
     def test_jit(self, device):
