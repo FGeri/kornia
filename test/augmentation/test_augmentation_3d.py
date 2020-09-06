@@ -17,6 +17,7 @@ from kornia.augmentation import (
     RandomAffine3D,
     RandomRotation3D
 )
+from kornia.geometry.linalg import transform_points
 
 
 class TestRandomHorizontalFlip3D:
@@ -759,3 +760,38 @@ class TestRandomRotation3D:
         input = torch.rand((3, 3, 3)).to(device)  # 3 x 3 x 3
         input = utils.tensor_to_gradcheck_var(input)  # to var
         assert gradcheck(RandomRotation3D(degrees=(15.0, 15.0)), (input, ), raise_exception=True)
+
+class TestCoordinate:
+    
+    @pytest.mark.parametrize("augmentation", [
+        RandomHorizontalFlip3D(1.0, return_transform=True),
+        RandomVerticalFlip3D(1.0, return_transform=True),
+        RandomDepthicalFlip3D(1.0, return_transform=True),
+        RandomAffine3D(degrees=45., translate = (0.5,0.5,0.5), scale= (0.5,0.5), shears= 10.,align_corners = True,return_transform=True),
+        RandomRotation3D(45., return_transform=True)
+        ])
+    def test_inverse_coord_check(self,device,dtype, augmentation):
+        if dtype is torch.float16:
+            pytest.xfail("'inverse_cuda' not implemented for 'Half'")
+
+        torch.manual_seed(1)
+
+
+        input = torch.zeros((1,1,50,100,200),device=device, dtype=dtype)
+        input[:,:,20:30,40:60,80:120]=1.
+
+        output,T = augmentation(input)
+
+        grid_z,grid_y,grid_x = torch.meshgrid(torch.tensor(range(output.shape[-3])),torch.tensor(range(output.shape[-2])),torch.tensor(range(output.shape[-1])))
+        indices = torch.stack([grid_x,grid_y,grid_z],axis=0).to(device=device, dtype=dtype)
+        output_indices = indices.permute((1,2,3,0)).reshape((1,-1,3))
+        input_indices = transform_points(T.inverse(),output_indices)
+
+        output_indices = output_indices.round().long().squeeze(0)
+        input_indices = input_indices.round().long().squeeze(0)
+        output_values = output[0,0,output_indices[:,2],output_indices[:,1],output_indices[:,0]]
+        value_mask = output_values > 0.9999
+        output_values = output[0,0,output_indices[:,2][value_mask],output_indices[:,1][value_mask],output_indices[:,0][value_mask]]
+        input_values = input[0,0,input_indices[:,2][value_mask],input_indices[:,1][value_mask],input_indices[:,0][value_mask]]
+        
+        assert_allclose(output_values,input_values)
