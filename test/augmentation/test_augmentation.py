@@ -11,9 +11,9 @@ from torch.autograd import gradcheck
 import kornia
 import kornia.testing as utils  # test utils
 from kornia.constants import pi, Resample
-from kornia.augmentation import AugmentationBase, RandomHorizontalFlip, RandomVerticalFlip, ColorJitter, \
-    RandomErasing, RandomGrayscale, RandomRotation, RandomCrop, RandomResizedCrop, RandomMotionBlur
-
+from kornia.augmentation import AugmentationBase, RandomHorizontalFlip, RandomVerticalFlip, RandomAffine,ColorJitter, \
+    RandomErasing, RandomGrayscale, RandomRotation,RandomPerspective, CenterCrop, RandomCrop, RandomResizedCrop, RandomMotionBlur
+from kornia.geometry.linalg import transform_points
 
 class TestAugmentationBase:
 
@@ -1661,3 +1661,41 @@ class TestRandomMotionBlur:
         }
         assert gradcheck(RandomMotionBlur(
             kernel_size=3, angle=(10, 30), direction=(-0.5, 0.5)), (inp, params), raise_exception=True)
+
+
+class TestCoordinate:
+    
+    @pytest.mark.parametrize("augmentation", [
+        RandomVerticalFlip(1.0,return_transform=True),
+        RandomHorizontalFlip(1.0,return_transform=True),
+        RandomPerspective(1.,0.1,align_corners = True,return_transform=True),
+        RandomResizedCrop(size=(100, 200), scale=(3., 3.), ratio=(2., 2.),return_transform=True),
+        RandomCrop((70,130),return_transform=True),
+        CenterCrop((40,60),return_transform=True),
+        RandomAffine(degrees=45., translate = 0.5, scale= (0.5,0.5), shear= (10.,10.),align_corners = True,return_transform=True),
+        RandomRotation(45.,align_corners = True,return_transform=True)])
+    def test_inverse_coord_check(self,device,dtype, augmentation):
+        if dtype is torch.float16:
+            pytest.xfail("'inverse_cuda' not implemented for 'Half'")
+
+        torch.manual_seed(0)
+
+
+        input = torch.zeros((1,1,100,200),device=device, dtype=dtype)
+        input[:,0,40:60,80:120]=1.
+
+        output,T = augmentation(input)
+
+        grid_y,grid_x = torch.meshgrid(torch.tensor(range(output.shape[-2])),torch.tensor(range(output.shape[-1])))
+        indices = torch.stack([grid_x,grid_y],axis=0).to(device=device, dtype=dtype)
+        output_indices = indices.permute((1,2,0)).reshape((1,-1,2))
+        input_indices = transform_points(T.inverse(),output_indices)
+
+        output_indices = output_indices.round().long().squeeze(0)
+        input_indices = input_indices.round().long().squeeze(0)
+        output_values = output[0,0,output_indices[:,1],output_indices[:,0]]
+        value_mask = output_values > 0.9999
+        output_values = output[0,0,output_indices[:,1][value_mask],output_indices[:,0][value_mask]]
+        input_values = input[0,0,input_indices[:,1][value_mask],input_indices[:,0][value_mask]]
+        
+        assert_allclose(output_values,input_values)
