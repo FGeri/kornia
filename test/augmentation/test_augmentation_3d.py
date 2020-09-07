@@ -767,7 +767,7 @@ class TestCoordinate:
         RandomHorizontalFlip3D(1.0, return_transform=True),
         RandomVerticalFlip3D(1.0, return_transform=True),
         RandomDepthicalFlip3D(1.0, return_transform=True),
-        RandomAffine3D(degrees=45., translate = (0.5,0.5,0.5), scale= (0.5,0.5), shears= 10.,align_corners = True,return_transform=True),
+        RandomAffine3D(degrees=45., translate = (0.5,0.5,0.5), scale= (1.0,1.0), shears= 10.,align_corners = True,return_transform=True),
         RandomRotation3D(45., return_transform=True)
         ])
     def test_inverse_coord_check(self,device,dtype, augmentation):
