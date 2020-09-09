@@ -763,6 +763,7 @@ class TestRandomRotation3D:
 
 class TestCoordinate:
     
+    
     @pytest.mark.parametrize("augmentation", [
         RandomHorizontalFlip3D(1.0, return_transform=True),
         RandomVerticalFlip3D(1.0, return_transform=True),
